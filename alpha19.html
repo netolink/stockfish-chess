@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>♞ שחמט — Stockfish</title>
+<meta name="theme-color" content="#1c1b19">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♞</text></svg>">
+<!--
+  ─────────────────────────────────────────────────────────────
+  שחמט בקובץ אחד · מנוע: Stockfish 19 (WASM, נטען מ-CDN)
+  כלים: סט cburnett © Colin M.L. Burnett (GPL/BSD) — מוטמע
+  כ-SVG וקטורי, ללא תלות ברשת. זהו סט ברירת המחדל של lichess.
+  מתאים ל-GitHub Pages: העלה כ-index.html והפעל Pages.
+  ─────────────────────────────────────────────────────────────
+-->
+<style>
+  :root{
+    --bg:#1c1b19; --bg2:#232220; --card:#2a2926; --card2:#312f2c; --line:#3d3a37;
+    --txt:#eceae6; --mut:#a8a49d; --acc:#81b64c; --acc-d:#5d8f33; --warn:#e8b33e; --bad:#d95f4d;
+    --radius:14px;
+    /* הדגשות בסטייל lichess */
+    --hl:rgba(155,199,0,.41);
+    --hl2:rgba(155,199,0,.58);
+    --dot:rgba(0,0,0,.145);
+    --ring:rgba(0,0,0,.145);
+  }
+  *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    background:radial-gradient(1200px 700px at 80% -10%, #2b2a27 0%, var(--bg) 55%);
+    color:var(--txt); font-family:"Segoe UI", system-ui, -apple-system, "Noto Sans Hebrew", Arial, sans-serif;
+    display:flex; flex-direction:column; min-height:100vh; touch-action:manipulation;
+  }
+  header{
+    display:flex; align-items:center; gap:12px; padding:14px 22px;
+    border-bottom:1px solid var(--line); background:rgba(28,27,25,.7); backdrop-filter:blur(6px);
+  }
+  header .logo{font-size:30px; filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))}
+  header h1{font-size:19px; font-weight:700; letter-spacing:.3px}
+  header .sub{color:var(--mut); font-size:12.5px; margin-top:2px}
+  .chip{
+    margin-inline-start:auto; display:flex; align-items:center; gap:7px;
+    background:var(--card); border:1px solid var(--line); padding:6px 13px; border-radius:99px;
+    font-size:12.5px; color:var(--mut); white-space:nowrap;
+  }
+  .chip .dot{width:9px; height:9px; border-radius:50%; background:var(--warn); box-shadow:0 0 8px var(--warn); transition:.3s}
+  .chip.ready .dot{background:var(--acc); box-shadow:0 0 8px var(--acc)}
+
+  main{
+    flex:1; display:flex; gap:26px; justify-content:center; align-items:flex-start;
+    padding:22px; flex-wrap:wrap; max-width:1200px; margin:0 auto; width:100%;
+  }
+
+  .stage{direction:ltr; display:flex; gap:12px; align-items:stretch}
+  .frame{
+    background:linear-gradient(180deg,#34322f,#2b2a27); border:1px solid var(--line);
+    border-radius:var(--radius); padding:14px; box-shadow:0 18px 50px rgba(0,0,0,.45);
+    display:flex; flex-direction:column; gap:8px; position:relative;
+  }
+  .caprow{
+    height:24px; display:flex; align-items:center; gap:1px; padding:0 4px;
+  }
+  .caprow .pc{display:inline-flex; height:calc(var(--sq,60px)*.44); aspect-ratio:1; opacity:.92}
+  .caprow .pc svg{width:100%; height:100%}
+  .caprow .adv{
+    font-size:13.5px; color:var(--acc); font-weight:700; margin-inline-start:6px; align-self:center;
+  }
+
+  /* ════════ הלוח ════════ */
+  .board{
+    --lt:#ebecd0; --dk:#739552;
+    width:min(92vw - 28px, calc(100vh - 260px), 640px);
+    aspect-ratio:1/1; display:grid; direction:ltr;
+    grid-template-columns:repeat(8,1fr); grid-template-rows:repeat(8,1fr);
+    border-radius:6px; overflow:hidden; user-select:none; -webkit-user-select:none;
+    touch-action:none; position:relative;
+  }
+  .board[data-theme=green]{--lt:#ebecd0; --dk:#739552}
+  .board[data-theme=brown]{--lt:#f0d9b5; --dk:#b58863}
+  .board[data-theme=blue] {--lt:#dee3e6; --dk:#8ca2ad}
+  .board[data-theme=gray] {--lt:#e4e4e2; --dk:#7e7e7b}
+  /* מסגרת פנימית עדינה */
+  .board::after{
+    content:""; position:absolute; inset:0; z-index:6; pointer-events:none;
+    box-shadow:inset 0 0 0 1px rgba(0,0,0,.28), inset 0 0 14px rgba(0,0,0,.10);
+  }
+  .sq{position:relative; width:100%; height:100%}
+  .sq.light{background:var(--lt)} .sq.dark{background:var(--dk)}
+  .sq.last::before, .sq.sel::before, .sq.chk::before, .sq.hint::after, .sq.caph::after{
+    content:""; position:absolute; pointer-events:none;
+  }
+  .sq.last::before{inset:0; background:var(--hl)}
+  .sq.sel::before{inset:0; background:var(--hl2)}
+  .sq.chk::before{inset:0; z-index:1;
+    background:radial-gradient(circle at 50% 46%, rgba(255,45,32,.86) 10%, rgba(255,45,32,.32) 52%, transparent 72%)}
+  .sq.hint::after{
+    inset:0; margin:auto; width:30%; height:30%; border-radius:50%; background:var(--dot);
+  }
+  .sq.caph::after{
+    inset:4%; border-radius:50%;
+    border:calc(var(--sq,60px)*.08) solid var(--ring);
+  }
+  .coord{position:absolute; font-size:calc(var(--sq,60px)*.185); font-weight:700; pointer-events:none; z-index:2; opacity:.9}
+  .sq.light .coord{color:var(--dk)} .sq.dark .coord{color:var(--lt)}
+  .coord.rk{top:3%; left:6%} .coord.fl{bottom:2%; right:6%}
+
+  .piece{
+    position:absolute; inset:0; z-index:3; display:flex; pointer-events:none;
+    filter:drop-shadow(0 calc(var(--sq,60px)*.035) calc(var(--sq,60px)*.03) rgba(0,0,0,.35));
+  }
+  .piece svg{width:100%; height:100%; display:block}
+  .board.myturn .sq .piece{pointer-events:auto; cursor:grab}
+  .piece.lifted{opacity:.25}
+  .piece.pop{animation:pop .18s ease-out}
+  @keyframes pop{from{transform:scale(.6)} to{transform:scale(1)}}
+
+  #ghost{
+    position:fixed; z-index:99; width:var(--gsq,60px); height:var(--gsq,60px);
+    pointer-events:none; display:none; transform:translate(-50%,-56%) scale(1.12);
+    filter:drop-shadow(0 14px 16px rgba(0,0,0,.45));
+  }
+  #ghost svg{width:100%; height:100%}
+
+  .evalwrap{
+    width:24px; border-radius:99px; overflow:hidden; position:relative;
+    background:#3c3a37; border:1px solid var(--line); box-shadow:inset 0 2px 6px rgba(0,0,0,.4);
+  }
+  .evalfill{
+    position:absolute; left:0; right:0; bottom:0; height:50%;
+    background:linear-gradient(180deg,#f4f2ec,#d8d5cb); transition:height .45s cubic-bezier(.3,.7,.3,1);
+  }
+  .evalwrap.flip .evalfill{bottom:auto; top:0; background:linear-gradient(0deg,#f4f2ec,#d8d5cb)}
+  .evallabel{
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    font-size:10.5px; font-weight:800; color:#111; background:rgba(255,255,255,.85);
+    padding:1px 4px; border-radius:5px; white-space:nowrap;
+  }
+
+  .panel{width:330px; max-width:96vw; display:flex; flex-direction:column; gap:14px}
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:15px 17px; box-shadow:0 8px 26px rgba(0,0,0,.3);
+  }
+  .card h3{font-size:12px; text-transform:uppercase; letter-spacing:1.2px; color:var(--mut); margin-bottom:11px}
+
+  .statusMain{font-size:17.5px; font-weight:700; display:flex; align-items:center; gap:9px; min-height:26px}
+  .statusSub{font-size:13px; color:var(--mut); margin-top:4px; min-height:18px}
+  .tdots{display:inline-flex; gap:3.5px; align-items:center}
+  .tdots i{width:6px; height:6px; border-radius:50%; background:var(--acc); animation:bnc 1.05s infinite}
+  .tdots i:nth-child(2){animation-delay:.16s} .tdots i:nth-child(3){animation-delay:.32s}
+  @keyframes bnc{0%,70%,100%{transform:translateY(0); opacity:.5} 35%{transform:translateY(-5px); opacity:1}}
+
+  .row{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+  .seg{display:flex; background:var(--bg2); border:1px solid var(--line); border-radius:10px; overflow:hidden; flex:1}
+  .seg label{
+    flex:1; text-align:center; padding:8px 4px; font-size:13px; cursor:pointer; color:var(--mut);
+    transition:.15s; border-inline-start:1px solid var(--line);
+  }
+  .seg label:first-child{border-inline-start:none}
+  .seg input{display:none}
+  .seg label:has(input:checked){background:var(--acc-d); color:#fff}
+  .seg label:hover{color:var(--txt)}
+
+  .lvlrow{margin-top:13px}
+  .lvlhead{display:flex; justify-content:space-between; font-size:13px; margin-bottom:7px}
+  .lvlhead b{color:var(--acc)}
+  input[type=range]{width:100%; appearance:none; height:6px; border-radius:4px; background:var(--bg2); outline:none}
+  input[type=range]::-webkit-slider-thumb{
+    appearance:none; width:19px; height:19px; border-radius:50%;
+    background:var(--acc); border:3px solid #eef2e6; cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,.4);
+  }
+  input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--acc);border:3px solid #eef2e6;cursor:pointer}
+
+  .btns{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:14px}
+  button{
+    font-family:inherit; border:1px solid var(--line); background:var(--card2); color:var(--txt);
+    padding:9px 6px; border-radius:10px; font-size:13px; cursor:pointer; transition:.15s; white-space:nowrap;
+  }
+  button:hover:not(:disabled){background:#3a3835; transform:translateY(-1px)}
+  button:active:not(:disabled){transform:translateY(0)}
+  button:disabled{opacity:.38; cursor:not-allowed}
+  button.primary{background:var(--acc-d); border-color:transparent; font-weight:700; font-size:14px}
+  button.primary:hover:not(:disabled){background:var(--acc)}
+  button.danger:hover:not(:disabled){background:#5c3530; border-color:#7a463e}
+
+  .toggles{display:flex; gap:16px; margin-top:13px; font-size:13px; color:var(--mut); flex-wrap:wrap}
+  .toggles label{display:flex; gap:6px; align-items:center; cursor:pointer}
+  .toggles input{accent-color:var(--acc); width:15px; height:15px; cursor:pointer}
+
+  /* בורר ערכת לוח */
+  .themegrid{display:flex; gap:10px; margin-top:13px; align-items:center}
+  .themegrid .lbl{font-size:13px; color:var(--mut)}
+  .th{
+    width:30px; height:30px; border-radius:50%; padding:0; border:2px solid var(--line);
+    cursor:pointer; transition:.15s; overflow:hidden;
+  }
+  .th[data-th=green]{background:linear-gradient(135deg,#ebecd0 50%,#739552 50%)}
+  .th[data-th=brown]{background:linear-gradient(135deg,#f0d9b5 50%,#b58863 50%)}
+  .th[data-th=blue] {background:linear-gradient(135deg,#dee3e6 50%,#8ca2ad 50%)}
+  .th[data-th=gray] {background:linear-gradient(135deg,#e4e4e2 50%,#7e7e7b 50%)}
+  .th:hover:not(:disabled){transform:scale(1.12); background:inherit}
+  .th.on{border-color:var(--acc); box-shadow:0 0 0 2px rgba(129,182,76,.35)}
+
+  .mvshead{display:flex; align-items:center; justify-content:space-between; margin-bottom:9px}
+  .nav{display:flex; gap:5px}
+  .nav button{padding:5px 10px; font-size:13px; border-radius:8px}
+  #moveList{
+    max-height:210px; overflow-y:auto; direction:ltr; font-size:14px;
+    scrollbar-width:thin; scrollbar-color:var(--line) transparent; min-height:60px;
+  }
+  .mrow{display:grid; grid-template-columns:34px 1fr 1fr; padding:2.5px 6px; border-radius:7px; align-items:center}
+  .mrow:nth-child(odd){background:rgba(255,255,255,.03)}
+  .mrow .no{color:var(--mut); font-size:12px}
+  .mv{padding:2.5px 8px; border-radius:6px; cursor:pointer; font-family:Cambria,Georgia,serif; font-weight:600}
+  .mv:hover{background:rgba(255,255,255,.09)}
+  .mv.cur{background:var(--acc-d); color:#fff}
+  .msempty{color:var(--mut); font-size:13px; text-align:center; padding:16px 0}
+
+  #jumpChip{
+    position:absolute; z-index:20; left:50%; bottom:44px; transform:translateX(-50%);
+    background:var(--acc-d); border:none; color:#fff; font-weight:700; border-radius:99px;
+    padding:8px 18px; box-shadow:0 6px 18px rgba(0,0,0,.5); font-size:13px;
+  }
+
+  footer{text-align:center; color:#6d6a64; font-size:11.5px; padding:12px 10px 18px}
+
+  .overlay{
+    position:fixed; inset:0; z-index:200; display:flex; align-items:center; justify-content:center;
+    background:rgba(12,12,11,.66); backdrop-filter:blur(5px); opacity:0; pointer-events:none; transition:.25s;
+  }
+  .overlay.show{opacity:1; pointer-events:auto}
+  .modal{
+    background:var(--card); border:1px solid var(--line); border-radius:18px; padding:28px 30px;
+    width:min(92vw,400px); text-align:center; box-shadow:0 30px 80px rgba(0,0,0,.6);
+    transform:translateY(14px) scale(.97); transition:.25s;
+  }
+  .overlay.show .modal{transform:none}
+  .modal h2{font-size:22px; margin-bottom:8px}
+  .modal p{color:var(--mut); font-size:14px; margin-bottom:20px; line-height:1.5}
+  .modal .row{justify-content:center}
+  .modal .big{font-size:52px; margin-bottom:6px; filter:drop-shadow(0 4px 8px rgba(0,0,0,.4))}
+
+  #loadBarWrap{height:9px; background:var(--bg2); border-radius:99px; overflow:hidden; margin:18px 0 10px}
+  #loadBar{height:100%; width:0%; background:linear-gradient(90deg,var(--acc-d),var(--acc)); border-radius:99px; transition:width .25s}
+  #loadMsg{font-size:13.5px; color:var(--mut)}
+  #loadErr{display:none; color:var(--bad); font-size:13px; margin-bottom:14px; line-height:1.5}
+  .spinner{
+    width:44px; height:44px; margin:0 auto 16px; border-radius:50%;
+    border:4px solid var(--line); border-top-color:var(--acc); animation:spin .9s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  #promoBtns{display:flex; gap:10px; justify-content:center}
+  #promoBtns button{padding:8px; line-height:0; border-radius:14px; background:var(--bg2)}
+  #promoBtns button:hover{background:#3f3d39}
+  #promoBtns svg{width:56px; height:56px}
+
+  #toast{
+    position:fixed; bottom:26px; left:50%; transform:translateX(-50%) translateY(20px);
+    background:#efece5; color:#1d1c1a; font-weight:600; font-size:13.5px;
+    padding:10px 20px; border-radius:99px; opacity:0; pointer-events:none; transition:.3s; z-index:300;
+    box-shadow:0 8px 24px rgba(0,0,0,.5);
+  }
+  #toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+
+  @media (max-width:980px){
+    main{flex-direction:column; align-items:center; gap:18px; padding:14px}
+    .panel{width:min(94vw,560px)}
+    header{padding:10px 16px}
+    #moveList{max-height:170px}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="logo">♞</span>
+  <div>
+    <h1>שחמט</h1>
+    <div class="sub">מנוע Stockfish 19 · WASM</div>
+  </div>
+  <div class="chip" id="engChip"><span class="dot"></span><span id="engTxt">מאתחל…</span></div>
+</header>
+
+<main>
+  <section class="stage">
+    <div class="evalwrap" id="evalWrap" title="סרגל הערכה">
+      <div class="evalfill" id="evalFill"></div>
+      <div class="evallabel" id="evalLabel">—</div>
+    </div>
+    <div class="frame">
+      <div class="caprow" id="capTop" dir="ltr"></div>
+      <div class="board" id="board" data-theme="green"></div>
+      <button id="jumpChip">⟨«⟩ חזרה למשחק הנוכחי</button>
+      <div class="caprow" id="capBot" dir="ltr"></div>
+    </div>
+    <div id="ghost"></div>
+  </section>
+
+  <aside class="panel">
+    <div class="card">
+      <div class="statusMain" id="statusMain">טוען מנוע…</div>
+      <div class="statusSub" id="statusSub"></div>
+    </div>
+
+    <div class="card">
+      <h3>הגדרות משחק</h3>
+      <div class="seg" id="sideSeg">
+        <label><input type="radio" name="side" value="w" checked><span>♔ אני בלבן</span></label>
+        <label><input type="radio" name="side" value="b"><span>♚ אני בשחור</span></label>
+        <label><input type="radio" name="side" value="r"><span>🎲 אקראי</span></label>
+      </div>
+      <div class="lvlrow">
+        <div class="lvlhead"><span>רמת קושי: <b id="lvlName"></b></span><span id="lvlNum"></span></div>
+        <input type="range" id="lvl" min="1" max="10" step="1" value="4">
+      </div>
+      <div class="lvlrow" id="thinkRow">
+        <div class="lvlhead"><span>זמן חשיבה: <b id="thinkName"></b></span><span style="color:var(--mut)">עומק 99</span></div>
+        <input type="range" id="think" min="1" max="16" step="1" value="5">
+      </div>
+      <div class="btns">
+        <button class="primary" id="btnNew">משחק חדש</button>
+        <button id="btnUndo">↩ חזרה צעד</button>
+        <button class="danger" id="btnResign">🏳 כניעה</button>
+        <button id="btnFlip">⇅ היפוך לוח</button>
+        <button id="btnFen">העתק FEN</button>
+        <button id="btnPgn">העתק PGN</button>
+      </div>
+      <div class="toggles">
+        <label><input type="checkbox" id="chkSound" checked> 🔊 צלילים</label>
+        <label><input type="checkbox" id="chkEval" checked> סרגל הערכה</label>
+      </div>
+      <div class="themegrid">
+        <span class="lbl">לוח:</span>
+        <button class="th on" data-th="green" title="ירוק (lichess)"></button>
+        <button class="th" data-th="brown" title="חום קלאסי"></button>
+        <button class="th" data-th="blue"  title="כחול (chess.com)"></button>
+        <button class="th" data-th="gray"  title="אפור"></button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="mvshead">
+        <h3 style="margin:0">מהלכים</h3>
+        <div class="nav">
+          <button id="navStart" title="התחלה">⏮</button>
+          <button id="navPrev" title="אחורה">◀</button>
+          <button id="navNext" title="קדימה">▶</button>
+          <button id="navEnd" title="הווה">⏭</button>
+        </div>
+      </div>
+      <div id="moveList"><div class='msempty'>אין מהלכים עדיין — בהצלחה!</div></div>
+    </div>
+  </aside>
+</main>
+
+<footer>מנוע: Stockfish 19 Lite (WASM, GPL-3.0) · כלים: cburnett © Colin M.L. Burnett (GPL/BSD) · נדרש אינטרנט לטעינה ראשונה</footer>
+
+<div class="overlay show" id="ovLoad">
+  <div class="modal">
+    <div class="spinner"></div>
+    <h2>מאתחל את המנוע</h2>
+    <p>מוריד את Stockfish 19 (כ־7MB, פעם אחת בלבד)</p>
+    <div id="loadBarWrap"><div id="loadBar"></div></div>
+    <div id="loadMsg">מתחבר ל-CDN…</div>
+    <div id="loadErr"></div>
+    <button class="primary" id="btnRetry" style="display:none">נסה שוב</button>
+  </div>
+</div>
+
+<div class="overlay" id="ovOver">
+  <div class="modal">
+    <div class="big" id="ovIcon">🏁</div>
+    <h2 id="ovTitle"></h2>
+    <p id="ovSub"></p>
+    <div class="row">
+      <button class="primary" id="btnAgain">משחק חדש</button>
+      <button id="btnCloseOver">סגור</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="ovPromo">
+  <div class="modal">
+    <h2>קידום רגלי</h2>
+    <p>בחר לאיזה כלי לקדם</p>
+    <div id="promoBtns"></div>
+    <div class="row" style="margin-top:16px"><button id="btnPromoCancel">ביטול</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script type="module">
+/* ════════ chess.js — עם גיבויי CDN ════════ */
+let Chess=null;
+for(const u of [
+  'https://cdn.jsdelivr.net/npm/chess.js@1/+esm',
+  'https://unpkg.com/chess.js@1/dist/esm/chess.js',
+  'https://esm.sh/chess.js@1'
+]){
+  try{ Chess=(await import(u)).Chess; if(Chess) break; }
+  catch(e){ console.warn('chess.js failed:',u,e); }
+}
+if(!Chess){
+  const el=document.getElementById('loadErr');
+  el.style.display='block';
+  el.textContent='לא ניתן לטעון את ספריית השחמט (chess.js) מאף שרת. בדוק חיבור לאינטרנט.';
+  throw new Error('chess.js unavailable');
+}
+
+/* ══════════════ קבועים ══════════════ */
+const SF_VER = '19.0.0';
+const SF_DIR = [
+  'https://unpkg.com/stockfish@'+SF_VER+'/bin/',
+  'https://cdn.jsdelivr.net/npm/stockfish@'+SF_VER+'/bin/',
+  'https://fastly.jsdelivr.net/npm/stockfish@'+SF_VER+'/bin/',
+  'https://gcore.jsdelivr.net/npm/stockfish@'+SF_VER+'/bin/',
+  'https://testingcf.jsdelivr.net/npm/stockfish@'+SF_VER+'/bin/',
+];
+const SF_JS   = 'stockfish-19-lite-single.js';
+const SF_WASM = 'stockfish-19-lite-single.wasm';
+const SF_ASM  = 'stockfish-19-asm.js';
+
+const LEVELS = [
+  {name:'תינוק',   skill:0,  depth:1,  mt:300},
+  {name:'מתחיל',   skill:2,  depth:2,  mt:500},
+  {name:'חובב',    skill:5,  depth:3,  mt:700},
+  {name:'משתפר',  skill:8,  depth:4,  mt:900},
+  {name:'בינוני',  skill:10, depth:6,  mt:1100},
+  {name:'טוב',     skill:12, depth:8,  mt:1400},
+  {name:'חזק',     skill:14, depth:10, mt:1700},
+  {name:'מתקדם',  skill:16, depth:12, mt:2000},
+  {name:'מומחה',   skill:18, depth:14, mt:2600},
+  {name:'אלוף-על', skill:20, dynamic:true},
+];
+
+/* ═══════════════════════════════════════════════
+   סט כלים cburnett (© Colin M.L. Burnett, GPL/BSD)
+   זהו סט ברירת המחדל של lichess · viewBox 0 0 45 45
+   ═══════════════════════════════════════════════ */
+const CBURNETT = {
+k:{
+w:`<g fill="none" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22.5 11.63V6M20 8h5" stroke-linejoin="miter"/><path d="M22.5 25s4.5-7.5 3-10.5c0 0-1-2.5-3-2.5s-3 2.5-3 2.5c-1.5 3 3 10.5 3 10.5" fill="#fff" stroke-linecap="butt" stroke-linejoin="miter"/><path d="M11.5 37c5.5 3.5 15.5 3.5 21 0v-7s9-4.5 6-10.5c-4-6.5-13.5-3.5-16 4V27v-3.5c-3.5-7.5-13-10.5-16-4-3 6 5 10 5 10V37z" fill="#fff"/><path d="M11.5 30c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0"/></g>`,
+b:`<g fill="none" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22.5 11.63V6M20 8h5" stroke-linejoin="miter"/><path d="M22.5 25s4.5-7.5 3-10.5c0 0-1-2.5-3-2.5s-3 2.5-3 2.5c-1.5 3 3 10.5 3 10.5" fill="#000" stroke-linecap="butt" stroke-linejoin="miter"/><path d="M11.5 37c5.5 3.5 15.5 3.5 21 0v-7s9-4.5 6-10.5c-4-6.5-13.5-3.5-16 4V27v-3.5c-3.5-7.5-13-10.5-16-4-3 6 5 10 5 10V37z" fill="#000"/><path d="M32 29.5s8.5-4 6.03-9.65C34.15 14 25 18 22.5 24.5l.01 2.1-.01-2.1C20 18 9.906 14 6.997 19.85c-2.497 5.65 4.853 9 4.853 9" stroke="#ececec"/><path d="M11.5 30c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0" stroke="#ececec"/></g>`},
+q:{
+w:`<g fill="#fff" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12a2 2 0 1 1-4 0 2 2 0 1 1 4 0zm16.5-4.5a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM41 12a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM16 8.5a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM33 9a2 2 0 1 1-4 0 2 2 0 1 1 4 0z"/><path d="M9 26c8.5-1.5 21-1.5 27 0l2.5-12.5L31 25l-.3-14.1-5.2 13.6-3-14.5-3 14.5-5.2-13.6L14 25 6.5 13.5 9 26z" stroke-linecap="butt"/><path d="M9 26c0 2 1.5 2 2.5 4 1 1.5 1 1 .5 3.5-1.5 1-1.5 2.5-1.5 2.5-1.5 1.5.5 2.5.5 2.5 6.5 1 16.5 1 23 0 0 0 1.5-1 0-2.5 0 0 .5-1.5-1-2.5-.5-2.5-.5-2 .5-3.5 1-2 2.5-2 2.5-4-8.5-1.5-18.5-1.5-27 0z" stroke-linecap="butt"/><path d="M11.5 30c3.5-1 18.5-1 22 0M12 33.5c6-1 15-1 21 0" fill="none"/></g>`,
+b:`<g fill="#000" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12a2 2 0 1 1-4 0 2 2 0 1 1 4 0zm16.5-4.5a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM41 12a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM16 8.5a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM33 9a2 2 0 1 1-4 0 2 2 0 1 1 4 0z"/><path d="M9 26c8.5-1.5 21-1.5 27 0l2.5-12.5L31 25l-.3-14.1-5.2 13.6-3-14.5-3 14.5-5.2-13.6L14 25 6.5 13.5 9 26z" stroke-linecap="butt"/><path d="M9 26c0 2 1.5 2 2.5 4 1 1.5 1 1 .5 3.5-1.5 1-1.5 2.5-1.5 2.5-1.5 1.5.5 2.5.5 2.5 6.5 1 16.5 1 23 0 0 0 1.5-1 0-2.5 0 0 .5-1.5-1-2.5-.5-2.5-.5-2 .5-3.5 1-2 2.5-2 2.5-4-8.5-1.5-18.5-1.5-27 0z" stroke-linecap="butt"/><path d="M11 38.5c3.5-1 18-1 22.5 0M12 33.5c6-1 15-1 21 0" fill="none" stroke="#ececec"/></g>`},
+r:{
+w:`<g fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 39h27v-3H9v3zm3.5-7l1.5-2.5h17l1.5 2.5h-20zm-.5 4v-4h21v4H12z" fill="#fff" stroke-linecap="butt"/><path d="M14 29.5v-13h17v13H14z" fill="#fff" stroke-linecap="butt" stroke-linejoin="miter"/><path d="M14 16.5L11 14h23l-3 2.5H14zM11 14V9h4v2h5V9h5v2h5V9h4v5H11z" fill="#fff" stroke-linecap="butt"/><path d="M12 35.5h21m-20-4h19m-18-2h17m-17-13h17M11 14h23" fill="none" stroke="#000" stroke-width="1"/></g>`,
+b:`<g fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 39h27v-3H9v3zm3.5-7l1.5-2.5h17l1.5 2.5h-20zm-.5 4v-4h21v4H12z" fill="#000" stroke-linecap="butt"/><path d="M14 29.5v-13h17v13H14z" fill="#000" stroke-linecap="butt" stroke-linejoin="miter"/><path d="M14 16.5L11 14h23l-3 2.5H14zM11 14V9h4v2h5V9h5v2h5V9h4v5H11z" fill="#000" stroke-linecap="butt"/><path d="M12 35.5h21m-20-4h19m-18-2h17m-17-13h17M11 14h23" fill="none" stroke="#ececec" stroke-width="1"/></g>`},
+b:{
+w:`<g fill="none" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><g fill="#fff" stroke-linecap="butt"><path d="M9 36c3.39-.97 10.11.43 13.5-2 3.39 2.43 10.11 1.03 13.5 2 0 0 1.65.54 3 2-.68.97-1.65.99-3 .5-3.39-.97-10.11.46-13.5-1-3.39 1.46-10.11.03-13.5 1-1.354.49-2.323.47-3-.5 1.354-1.94 3-2 3-2z"/><path d="M15 32c2.5 2.5 12.5 2.5 15 0 .5-1.5 0-2 0-2 0-2.5-2.5-4-2.5-4 5.5-1.5 6-11.5-5-15.5-11 4-10.5 14-5 15.5 0 0-2.5 1.5-2.5 4 0 0-.5.5 0 2z"/><path d="M25 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 1 1 5 0z"/></g><path d="M17.5 26h10M15 30h15m-7.5-14.5v5M20 18h5" stroke-linejoin="miter"/></g>`,
+b:`<g fill="none" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><g fill="#000" stroke-linecap="butt"><path d="M9 36c3.39-.97 10.11.43 13.5-2 3.39 2.43 10.11 1.03 13.5 2 0 0 1.65.54 3 2-.68.97-1.65.99-3 .5-3.39-.97-10.11.46-13.5-1-3.39 1.46-10.11.03-13.5 1-1.354.49-2.323.47-3-.5 1.354-1.94 3-2 3-2z"/><path d="M15 32c2.5 2.5 12.5 2.5 15 0 .5-1.5 0-2 0-2 0-2.5-2.5-4-2.5-4 5.5-1.5 6-11.5-5-15.5-11 4-10.5 14-5 15.5 0 0-2.5 1.5-2.5 4 0 0-.5.5 0 2z"/><path d="M25 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 1 1 5 0z"/></g><path d="M17.5 26h10M15 30h15m-7.5-14.5v5M20 18h5" stroke="#ececec" stroke-linejoin="miter"/></g>`},
+n:{
+w:`<g fill="none" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10c10.5 1 16.5 8 16 29H15c0-9 10-6.5 8-21" fill="#fff"/><path d="M24 18c.38 2.91-5.55 7.37-8 9-3 2-2.82 4.34-5 4-1.042-.94 1.41-3.04 0-3-1 0 .19 1.23-1 2-1 0-4.003 1-4-4 0-2 6-12 6-12s1.89-1.9 2-3.5c-.73-.994-.5-2-.5-3 1-1 3 2.5 3 2.5h2s.78-1.992 2.5-3c1 0 1 3 1 3" fill="#fff"/><path d="M9.5 25.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0zm5.433-9.75a.5 1.5 30 1 1-.866-.5.5 1.5 30 1 1 .866.5z" fill="#000" stroke="#000"/></g>`,
+b:`<g fill="none" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10c10.5 1 16.5 8 16 29H15c0-9 10-6.5 8-21" fill="#000"/><path d="M24 18c.38 2.91-5.55 7.37-8 9-3 2-2.82 4.34-5 4-1.042-.94 1.41-3.04 0-3-1 0 .19 1.23-1 2-1 0-4.003 1-4-4 0-2 6-12 6-12s1.89-1.9 2-3.5c-.73-.994-.5-2-.5-3 1-1 3 2.5 3 2.5h2s.78-1.992 2.5-3c1 0 1 3 1 3" fill="#000"/><path d="M9.5 25.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0zm5.433-9.75a.5 1.5 30 1 1-.866-.5.5 1.5 30 1 1 .866.5z" fill="#ececec" stroke="#ececec"/></g>`},
+p:{
+w:`<path d="M22.5 9c-2.21 0-4 1.79-4 4 0 .89.29 1.71.78 2.38C17.33 16.5 16 18.59 16 21c0 2.03.94 3.84 2.41 5.03-3 1.06-7.41 5.55-7.41 13.47h23c0-7.92-4.41-12.41-7.41-13.47 1.47-1.19 2.41-3 2.41-5.03 0-2.41-1.33-4.5-3.28-5.62.49-.67.78-1.49.78-2.38 0-2.21-1.79-4-4-4z" fill="#fff" stroke="#000" stroke-width="1.5" stroke-linecap="round"/>`,
+b:`<path d="M22.5 9c-2.21 0-4 1.79-4 4 0 .89.29 1.71.78 2.38C17.33 16.5 16 18.59 16 21c0 2.03.94 3.84 2.41 5.03-3 1.06-7.41 5.55-7.41 13.47h23c0-7.92-4.41-12.41-7.41-13.47 1.47-1.19 2.41-3 2.41-5.03 0-2.41-1.33-4.5-3.28-5.62.49-.67.78-1.49.78-2.38 0-2.21-1.79-4-4-4z" fill="#000" stroke="#000" stroke-width="1.5" stroke-linecap="round"/>`}
+};
+function svgFor(type,color){
+  return "<svg viewBox='0 0 45 45' xmlns='http://www.w3.org/2000/svg'>"+CBURNETT[type][color==='w'?'w':'b']+"</svg>";
+}
+
+const VAL = {q:9, r:5, b:3, n:3, p:1, k:0};
+const START_COUNT = {p:8, n:2, b:2, r:2, q:1};
+
+/* ══════════════ DOM ══════════════ */
+const $ = id => document.getElementById(id);
+const boardEl=$('board'), ghost=$('ghost'), statusMain=$('statusMain'), statusSub=$('statusSub'),
+      moveListEl=$('moveList'), capTop=$('capTop'), capBot=$('capBot'),
+      evalWrap=$('evalWrap'), evalFill=$('evalFill'), evalLabel=$('evalLabel'),
+      jumpChip=$('jumpChip'), engChip=$('engChip'), engTxt=$('engTxt');
+
+/* ══════════════ מצב ══════════════ */
+let game = new Chess();
+let fens = [game.fen()];
+let sans = [];
+let evalByPly = [];
+let playerColor='w', flipped=false;
+let level=4, sidePref='w', theme='green', thinkSec=5;
+let ready=false, thinking=false, gameOver=null;
+let viewIdx=null;
+let sel=null, dragInfo=null, promoPending=null;
+let searchGen=0, pendingGen=-1;
+let soundOn=true, evalOn=true;
+
+try{
+  const s=JSON.parse(localStorage.getItem('sf-chess-cfg')||'{}');
+  if(s.level) level=s.level;
+  if(s.sidePref) sidePref=s.sidePref;
+  if(s.soundOn===false) soundOn=false;
+  if(s.evalOn===false) evalOn=false;
+  if(s.theme) theme=s.theme;
+  if(s.thinkSec) thinkSec=Math.max(1,Math.min(16,s.thinkSec));
+}catch(e){}
+function saveCfg(){ try{ localStorage.setItem('sf-chess-cfg',
+  JSON.stringify({level, sidePref, soundOn, evalOn, theme, thinkSec})); }catch(e){} }
+
+/* ══════════════ צלילים (WebAudio) ══════════════ */
+let actx=null;
+function ac(){
+  if(!soundOn) return null;
+  try{
+    actx = actx || new (window.AudioContext||window.webkitAudioContext)();
+    if(actx.state==='suspended') actx.resume();
+    return actx;
+  }catch(e){ return null; }
+}
+function tone(freq, dur, vol, type='sine', delay=0, slideTo=null){
+  const c=ac(); if(!c) return;
+  const t=c.currentTime+delay;
+  const o=c.createOscillator(), g=c.createGain();
+  o.type=type; o.frequency.setValueAtTime(freq,t);
+  if(slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t+dur);
+  g.gain.setValueAtTime(vol,t);
+  g.gain.exponentialRampToValueAtTime(.0001, t+dur);
+  o.connect(g).connect(c.destination); o.start(t); o.stop(t+dur+.02);
+}
+function noise(dur, cutoff, vol, delay=0){
+  const c=ac(); if(!c) return;
+  const t=c.currentTime+delay, len=Math.max(1,(dur*c.sampleRate)|0);
+  const buf=c.createBuffer(1,len,c.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*(1-i/len);
+  const src=c.createBufferSource(); src.buffer=buf;
+  const f=c.createBiquadFilter(); f.type='bandpass'; f.frequency.value=cutoff; f.Q.value=.8;
+  const g=c.createGain(); g.gain.value=vol;
+  src.connect(f).connect(g).connect(c.destination); src.start(t);
+}
+const SFX={
+  move(){ noise(.06, 900, .5); tone(190,.07,.25,'triangle',0,120); },
+  capture(){ noise(.09, 550, .7); tone(150,.1,.3,'triangle',0,90); },
+  castle(){ noise(.06,900,.45); noise(.06,750,.45,.09); },
+  check(){ tone(720,.08,.22,'sine'); tone(720,.08,.22,'sine',.13); },
+  promote(){ [520,660,880].forEach((f,i)=>tone(f,.12,.18,'triangle',i*.09)); },
+  win(){ [523,659,784,1047].forEach((f,i)=>tone(f,.3,.16,'triangle',i*.12)); },
+  lose(){ [392,330,262].forEach((f,i)=>tone(f,.35,.16,'triangle',i*.15)); },
+  draw(){ tone(440,.25,.14,'sine'); tone(440,.25,.12,'sine',.28); },
+};
+
+/* ══════════════ עזרי לוח ══════════════ */
+function sqAt(row,col){
+  const f = flipped ? 7-col : col;
+  const r = flipped ? row : 7-row;
+  return 'abcdefgh'[f] + (r+1);
+}
+function rcOf(sq){
+  const f=sq.charCodeAt(0)-97, r=+sq[1]-1;
+  return flipped ? [r,7-f] : [7-r,f];
+}
+function pieceNode(type,color){
+  const sp=document.createElement('span');
+  sp.className='piece';
+  sp.innerHTML=svgFor(type,color);
+  return sp;
+}
+
+/* ══════════════ רינדור ══════════════ */
+const sqEls = new Map();
+function renderBoard(idx){
+  const fen = fens[Math.min(idx, fens.length-1)] ?? game.fen();
+  const view = new Chess(fen);
+  const grid = view.board();
+  const last = idx>0 ? sans[idx-1] : null;
+
+  boardEl.innerHTML='';
+  sqEls.clear();
+
+  for(let r=0;r<8;r++) for(let c=0;c<8;c++){
+    const sq=sqAt(r,c);
+    const d=document.createElement('div');
+    d.className='sq '+(((r+c)%2===0)?'light':'dark');
+    d.dataset.sq=sq;
+
+    if(c===0){ const s=document.createElement('span'); s.className='coord rk'; s.textContent=8-(flipped?r:7-r); d.appendChild(s); }
+    if(r===7){ const s=document.createElement('span'); s.className='coord fl'; s.textContent='abcdefgh'[flipped?7-c:c]; d.appendChild(s); }
+
+    if(last && (last.from===sq || last.to===sq)) d.classList.add('last');
+    if(sel===sq) d.classList.add('sel');
+
+    const pc=grid[8-+sq[1]][sq.charCodeAt(0)-97];
+    if(pc){
+      const p=pieceNode(pc.type,pc.color);
+      d.appendChild(p);
+      if(view.isCheck() && pc.type==='k' && pc.color===view.turn()) d.classList.add('chk');
+    }
+    boardEl.appendChild(d);
+    sqEls.set(sq,d);
+  }
+
+  if(sel){
+    for(const m of game.moves({square:sel, verbose:true}))
+      sqEls.get(m.to)?.classList.add(game.get(m.to) ? 'caph' : 'hint');
+  }
+  boardEl.classList.toggle('myturn', canInteract());
+}
+
+/* ── הנפשת החלקה (סטייל lichess) ── */
+function animateSlide(mv){
+  const legs=[{from:mv.from, to:mv.to}];
+  const rank=mv.color==='w'?'1':'8';
+  if((mv.flags||'').includes('k')) legs.push({from:'h'+rank, to:'f'+rank});   // הצרחה קצרה
+  if((mv.flags||'').includes('q')) legs.push({from:'a'+rank, to:'d'+rank});   // הצרחה ארוכה
+  for(const leg of legs){
+    const el=sqEls.get(leg.to)?.querySelector('.piece');
+    if(!el) continue;
+    const [fr,fc]=rcOf(leg.from), [tr,tc]=rcOf(leg.to);
+    const dx=(fc-tc)*100, dy=(fr-tr)*100;
+    if(!dx && !dy) continue;
+    el.style.transition='none';
+    el.style.transform=`translate(${dx}%, ${dy}%)`;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      el.style.transition='transform .16s cubic-bezier(.2,.8,.3,1)';
+      el.style.transform='translate(0,0)';
+      setTimeout(()=>{ el.style.transition=''; el.style.transform=''; },200);
+    }));
+  }
+}
+
+function canInteract(){
+  return ready && !thinking && !gameOver && viewIdx===null &&
+         !promoPending && game.turn()===playerColor && !document.hidden;
+}
+
+/* ══════════════ סטטוס ══════════════ */
+function updateStatus(){
+  let main='', sub='';
+  if(!ready){ main='טוען מנוע…'; }
+  else if(gameOver){
+    main = gameOver.winner===null ? 'המשחק הסתיים בתיקו' :
+           (gameOver.winner===playerColor ? '🏆 ניצחת!' : 'הפסדת');
+    sub  = gameOver.reason;
+  } else if(thinking){
+    main='המנוע חושב '; sub='רמה: '+LEVELS[level-1].name;
+    main += "<span class='tdots'><i></i><i></i><i></i></span>";
+  } else {
+    main='התור שלך '+(playerColor==='w'?'♔ (לבן)':'♚ (שחור)');
+    if(game.isCheck()) { main='שח! התור שלך'; sub='עליך להגן על המלך'; }
+    if(viewIdx!==null) sub+=' · מציג היסטוריה';
+  }
+  statusMain.innerHTML=main; statusSub.textContent=sub;
+  $('btnUndo').disabled   = !ready || gameOver || thinking || sans.length===0;
+  $('btnResign').disabled = !ready || !!gameOver;
+}
+
+/* ══════════════ רשימת מהלכים ══════════════ */
+function refreshMoveList(){
+  if(!sans.length){ moveListEl.innerHTML="<div class='msempty'>אין מהלכים עדיין — בהצלחה!</div>"; return; }
+  const cur = viewIdx===null ? sans.length : viewIdx;
+  let html='';
+  for(let i=0;i<sans.length;i+=2){
+    const n=i/2+1;
+    const w=sans[i], b=sans[i+1];
+    html+="<div class='mrow'><span class='no'>"+n+".</span>"+
+      "<span class='mv"+(cur===i+1?' cur':'')+"' data-ply='"+(i+1)+"'>"+w.san+"</span>"+
+      (b?"<span class='mv"+(cur===i+2?' cur':'')+"' data-ply='"+(i+2)+"'>"+b.san+"</span>":"<span></span>")+"</div>";
+  }
+  moveListEl.innerHTML=html;
+  moveListEl.scrollTop = moveListEl.scrollHeight;
+}
+moveListEl.addEventListener('click', e=>{
+  const mv=e.target.closest('.mv'); if(!mv) return;
+  gotoPly(+mv.dataset.ply);
+});
+
+/* ══════════════ ניווט בהיסטוריה ══════════════ */
+function gotoPly(k){
+  k=Math.max(0,Math.min(sans.length,k));
+  viewIdx = (k===sans.length) ? null : k;
+  sel=null;
+  renderBoard(viewIdx===null?sans.length:viewIdx);
+  refreshMoveList(); refreshEval(); updateStatus();
+  jumpChip.style.display = viewIdx===null ? 'none':'block';
+}
+$('navStart').onclick=()=>gotoPly(0);
+$('navPrev') .onclick=()=>gotoPly((viewIdx??sans.length)-1);
+$('navNext') .onclick=()=>gotoPly((viewIdx??sans.length)+1);
+$('navEnd')  .onclick=()=>gotoPly(sans.length);
+jumpChip.onclick=()=>gotoPly(sans.length);
+document.addEventListener('keydown', e=>{
+  if(e.key==='ArrowLeft')  $('navPrev').click();
+  else if(e.key==='ArrowRight') $('navNext').click();
+  else if(e.key==='Home') $('navStart').click();
+  else if(e.key==='End')  $('navEnd').click();
+  else if(e.key==='Escape'){ if(promoPending) cancelPromo(); hide($('ovOver')); }
+  else return;
+  e.preventDefault();
+});
+
+/* ══════════════ כלים שנלקחו ══════════════ */
+function refreshCaptured(){
+  const cnt={w:{p:0,n:0,b:0,r:0,q:0}, b:{p:0,n:0,b:0,r:0,q:0}};
+  for(const row of game.board())
+    for(const pc of row) if(pc && pc.type!=='k') cnt[pc.color][pc.type]++;
+  const missed={w:[],b:[]}; let dw=0, db=0;
+  for(const col of ['w','b']) for(const t of ['q','r','b','n','p']){
+    const miss=Math.max(0,(START_COUNT[t]||0)-cnt[col][t]);
+    for(let i=0;i<miss;i++){ missed[col].push(t); if(col==='w') dw+=VAL[t]; else db+=VAL[t]; }
+  }
+  const mine = missed[playerColor==='w'?'b':'w'], theirs = missed[playerColor];
+  const myAdv = (playerColor==='w'? dw-db : db-dw);
+  const theirAdv = -myAdv;
+  capBot.innerHTML = mine.map(t=>"<span class='pc'>"+svgFor(t, playerColor==='w'?'b':'w')+"</span>").join('') +
+                     (myAdv>0 ? "<span class='adv'>+"+myAdv+"</span>" : "");
+  capTop.innerHTML = theirs.map(t=>"<span class='pc'>"+svgFor(t, playerColor)+  "</span>").join('') +
+                     (theirAdv>0 ? "<span class='adv'>+"+theirAdv+"</span>" : "");
+}
+
+/* ══════════════ סרגל הערכה ══════════════ */
+function refreshEval(){
+  evalWrap.style.display = evalOn ? 'block':'none';
+  if(!evalOn) return;
+  evalWrap.classList.toggle('flip', flipped);
+  const idx = viewIdx===null ? sans.length : viewIdx;
+  const ev  = evalByPly[idx];
+  if(!ev){ evalFill.style.height='50%'; evalLabel.textContent='—'; return; }
+  const sign = ev.stm==='w' ? 1 : -1;
+  let pct, txt;
+  if(ev.mate!==undefined){
+    const m=ev.mate*sign;
+    pct = m>0?100:0;
+    txt = (m>0?'+M':'−M')+Math.abs(m);
+  } else {
+    const cp=ev.cp*sign;
+    pct = 100/(1+Math.exp(-cp/380));
+    txt = (cp>=0?'+':'−')+Math.abs(cp/100).toFixed(1);
+  }
+  evalFill.style.height=pct+'%';
+  evalLabel.textContent=txt;
+}
+
+/* ══════════════ גרירה ולחיצה ══════════════ */
+function sqFromPoint(x,y){
+  const r=boardEl.getBoundingClientRect();
+  const col=Math.floor((x-r.left)/r.width*8), row=Math.floor((y-r.top)/r.height*8);
+  if(col<0||col>7||row<0||row>7) return null;
+  return sqAt(row,col);
+}
+function liftPiece(sq){ sqEls.get(sq)?.querySelector('.piece')?.classList.add('lifted'); }
+function dropPiece(sq){ sqEls.get(sq)?.querySelector('.piece')?.classList.remove('lifted'); }
+
+boardEl.addEventListener('contextmenu', e=>e.preventDefault());
+
+boardEl.addEventListener('pointerdown', e=>{
+  ac();
+  if(!canInteract()) return;
+  const sqEl=e.target.closest('.sq'); if(!sqEl) return;
+  const sq=sqEl.dataset.sq, pc=game.get(sq);
+
+  if(sel && sel!==sq){
+    if(tryPlayerMove(sel,sq,true)) return;   // לחיצה-לחיצה → עם הנפשה
+  }
+  if(pc && pc.color===playerColor){
+    sel=sq; renderBoard(sans.length);
+    dragInfo={from:sq, x:e.clientX, y:e.clientY, moved:false, id:e.pointerId};
+    try{ boardEl.setPointerCapture(e.pointerId); }catch(_){}
+  } else { sel=null; renderBoard(sans.length); }
+});
+
+boardEl.addEventListener('pointermove', e=>{
+  if(!dragInfo || e.pointerId!==dragInfo.id) return;
+  if(!dragInfo.moved){
+    if(Math.hypot(e.clientX-dragInfo.x, e.clientY-dragInfo.y)<7) return;
+    dragInfo.moved=true;
+    const pc=game.get(dragInfo.from);
+    ghost.innerHTML=svgFor(pc.type,pc.color);
+    ghost.style.display='block';
+    const s=boardEl.clientWidth/8;
+    ghost.style.setProperty('--gsq', s+'px');
+    liftPiece(dragInfo.from);
+  }
+  ghost.style.left=e.clientX+'px'; ghost.style.top=e.clientY+'px';
+});
+
+function endDrag(e){
+  if(!dragInfo || (e.pointerId!==undefined && e.pointerId!==dragInfo.id)) return;
+  const d=dragInfo; dragInfo=null; ghost.style.display='none';
+  if(!d.moved) return;
+  dropPiece(d.from);
+  const target=sqFromPoint(e.clientX,e.clientY);
+  if(target && target!==d.from){
+    if(!tryPlayerMove(d.from,target,false)){ sel=d.from; renderBoard(sans.length); }  // גרירה → בלי הנפשה
+    else sel=null;
+  } else { sel=d.from; renderBoard(sans.length); }
+}
+boardEl.addEventListener('pointerup', endDrag);
+boardEl.addEventListener('pointercancel', endDrag);
+
+/* ══════════════ ביצוע מהלכים ══════════════ */
+function tryPlayerMove(from,to,animate){
+  const cand = game.moves({square:from, verbose:true}).filter(m=>m.to===to);
+  if(!cand.length) return false;
+  if(cand.some(m=>m.promotion)){
+    promoPending={from,to,animate:!!animate};
+    openPromo();
+    return true;
+  }
+  playerMove({from,to}, animate);
+  return true;
+}
+function playerMove(extra, animate=true){
+  let mv=null;
+  try{ mv=game.move(extra); }catch(_){}
+  if(!mv) return;
+  sel=null;
+  commitMove(mv, animate);
+}
+function commitMove(mv, animate){
+  fens.push(game.fen()); sans.push(mv);
+  playMoveSound(mv);
+  renderBoard(sans.length); refreshMoveList(); refreshCaptured(); refreshEval();
+  if(animate) animateSlide(mv);
+  if(checkGameEnd()) return;
+  if(mv.color===playerColor) setTimeout(engineGo,170);
+  updateStatus();
+}
+function playMoveSound(mv){
+  const f=mv.flags||'';
+  if(f.includes('p')) SFX.promote();
+  else if(f.includes('k')||f.includes('q')) SFX.castle();
+  else if(f.includes('c')||f.includes('e')) SFX.capture();
+  else SFX.move();
+  if(game.isCheck()) setTimeout(SFX.check,90);
+}
+
+/* ══════════════ הכתרה ══════════════ */
+function openPromo(){
+  const wrap=$('promoBtns'); wrap.innerHTML='';
+  for(const t of ['q','r','n','b']){
+    const btn=document.createElement('button');
+    btn.innerHTML=svgFor(t,playerColor);
+    btn.onclick=()=>{
+      const pp=promoPending; promoPending=null; hide($('ovPromo'));
+      if(pp) playerMove({from:pp.from,to:pp.to,promotion:t}, pp.animate);
+    };
+    wrap.appendChild(btn);
+  }
+  show($('ovPromo'));
+}
+function cancelPromo(render=true){
+  promoPending=null; hide($('ovPromo'));
+  if(render){ sel=null; renderBoard(sans.length); updateStatus(); }
+}
+$('btnPromoCancel').onclick=()=>cancelPromo();
+
+/* ══════════════ סיום משחק ══════════════ */
+function checkGameEnd(){
+  let res=null;
+  if(game.isCheckmate()){
+    const winner = game.turn()==='w' ? 'b':'w';
+    res={winner, reason:'מט — '+(winner==='w'?'לבן':'שחור')+' ניצח'};
+  }
+  else if(game.isStalemate())            res={winner:null, reason:'פאט — אין מהלכים חוקיים'};
+  else if(game.isInsufficientMaterial()) res={winner:null, reason:'חומר בלתי מספיק'};
+  else if(game.isThreefoldRepetition())  res={winner:null, reason:'חזרה משולשת על אותה עמדה'};
+  else if(game.isDraw())                 res={winner:null, reason:'כלל 50 הצעדים'};
+  if(!res) return false;
+  gameOver=res; thinking=false;
+  updateStatus(); renderBoard(sans.length);
+  setTimeout(()=>{
+    if(res.winner===null) SFX.draw();
+    else if(res.winner===playerColor) SFX.win();
+    else SFX.lose();
+    $('ovIcon').textContent = res.winner===null ? '🤝' : (res.winner===playerColor?'🏆':'💀');
+    $('ovTitle').textContent = res.winner===null ? 'תיקו' :
+      (res.winner===playerColor?'ניצחת!':'הפסדת');
+    $('ovSub').textContent=res.reason;
+    show($('ovOver'));
+  },420);
+  return true;
+}
+
+/* ═══════════════════════════════════════════════
+   מנוע UCI — Stockfish 19 (לוגיקה קיימת, לא נשנתה)
+   ═══════════════════════════════════════════════ */
+let worker=null;
+let hsWatch=null, hsReject=null;
+let useNativeProgress=false;
+let verifiedEngineName='';
+
+/*
+   Do not rely on the CDN package name alone: a mirror can serve a stale or
+   incorrectly cached binary.  Stockfish identifies itself in the UCI reply;
+   only enable the board after that reply confirms major version 19.
+*/
+function isStockfish19Id(line){
+  return /^id name\s+stockfish(?:\.js)?\s+19(?:\D|$)/i.test(line);
+}
+
+function send(cmd){ if(worker) worker.postMessage(cmd); }
+function killWorker(){ if(worker){ try{worker.terminate();}catch(_){} worker=null; } }
+
+function attachWorkerHandlers(){
+  worker.onmessage = e=>{
+    const msg = String(e.data);
+    if(useNativeProgress && msg==='info WillOutputEngineDownloadProgress'){
+      try{
+        const ch=new MessageChannel();
+        ch.port1.onmessage = ev=>{
+          const pr=ev.data||{};
+          if(typeof pr.percent==='number'){
+            loaderMsg('המנוע מוריד את ה-wasm… ('+Math.round(pr.percent*100)+'%) · '+(pr.speedText||''),
+                      Math.max(0.02,pr.percent));
+          }
+        };
+        worker.postMessage({progressPort:ch.port2}, [ch.port2]);
+      }catch(_e){}
+      return;
+    }
+    if(hsWatch) hsWatch(msg);
+    onEngineLine(msg);
+  };
+  worker.onerror = err=>{
+    console.error(err);
+    if(hsReject){ const r=hsReject; hsReject=null; r(new Error('Worker: '+(err.message||'שגיאה'))); }
+    else if(!ready) loaderFail('שגיאת Worker: '+(err.message||'לא ידוע'));
+  };
+}
+
+function handshake(opts){
+  const {timeoutMs=120000, label=''} = opts||{};
+  return new Promise((resolve,reject)=>{
+    let done=false, tries=0, iv=null, sawStockfish19=false, engineName='';
+    const finish=()=>{ done=true; hsWatch=null; hsReject=null; if(iv) clearInterval(iv); };
+    hsReject = err=>{ finish(); reject(err); };
+    hsWatch  = msg=>{
+      if(done) return;
+      for(const line of String(msg).split('\n')){
+        if(/^id name\s+/i.test(line)){
+          engineName=line.replace(/^id name\s+/i,'').trim();
+          sawStockfish19=isStockfish19Id(line);
+        }
+      }
+      if(msg.indexOf('uciok')!==-1){
+        if(!sawStockfish19){
+          finish();
+          reject(new Error('התקבל מנוע שאינו Stockfish 19'+(engineName ? ' ('+engineName+')' : '')));
+          return;
+        }
+        finish();
+        verifiedEngineName=engineName;
+        send('ucinewgame'); send('isready');
+        resolve();
+      }
+    };
+    iv=setInterval(()=>{
+      if(done) return;
+      send('uci');
+      tries++;
+      if(label) loaderMsg(label+' · ניסיון '+tries, 1);
+      if(tries*600 > timeoutMs){ finish(); reject(new Error('פסק זמן באתחול')); }
+    },600);
+  });
+}
+
+function spawnEngineWorker(jsUrl, wasmUrl, label){
+  killWorker();
+  const hash = wasmUrl ? '#'+encodeURIComponent(wasmUrl) : '#engine';
+  worker = new Worker(jsUrl + hash);
+  attachWorkerHandlers();
+  if(label==='native-progress'){ useNativeProgress=true; send('setoption name CanOutputEngineDownloadProgress'); }
+  else useNativeProgress=false;
+}
+
+function engineGo(){
+  if(!ready || thinking || gameOver || game.isGameOver()) return;
+  if(game.turn()===playerColor) return;
+  thinking=true; updateStatus();
+  const cfg=LEVELS[level-1];
+  pendingGen=++searchGen;
+  send('position fen '+game.fen());
+  send('setoption name Skill Level value '+cfg.skill);
+  if(cfg.dynamic){
+    /* אלוף-על: עומק 99 (ללא תקרה מעשית) · הזמן מהסליידר · 16 = ללא הגבלה */
+    send('go depth 99' + (thinkSec<16 ? ' movetime '+(thinkSec*1000) : ''));
+  }else{
+    send('go depth '+cfg.depth+' movetime '+cfg.mt);
+  }
+}
+function stopEngine(){ searchGen++; if(thinking){ send('stop'); thinking=false; } }
+
+function onEngineLine(raw){
+  const lines=String(raw).split('\n');
+  for(const line of lines){
+    if(line.indexOf('readyok')!==-1){
+      if(!ready){
+        ready=true;
+        engChip.classList.add('ready'); engTxt.textContent=(verifiedEngineName||'Stockfish 19')+' מוכן';
+        hide($('ovLoad'));
+        newGame();
+      }
+      continue;
+    }
+    if(line.indexOf('info')===0 && thinking && line.indexOf(' score ')!==-1){
+      const m=line.match(/score (cp|mate) (-?\d+)/);
+      if(m && line.indexOf('lowerbound')===-1 && line.indexOf('upperbound')===-1){
+        const val=parseInt(m[2],10);
+        evalByPly[sans.length] = m[1]==='mate' ? {mate:val, stm:game.turn()}
+                                              : {cp:val,   stm:game.turn()};
+        refreshEval();
+      }
+      continue;
+    }
+    if(line.indexOf('bestmove')===0){
+      if(!thinking) continue;
+      thinking=false;
+      const bm=line.split(/\s+/)[1]||'';
+      if(bm==='(none)' || bm.length<4 || pendingGen!==searchGen){ updateStatus(); continue; }
+      const from=bm.slice(0,2), to=bm.slice(2,4), promo=bm.slice(4,5)||undefined;
+      let mv=null;
+      try{ mv=game.move({from,to,promotion:promo}); }catch(_){}
+      if(!mv){
+        pendingGen=++searchGen;
+        send('position fen '+game.fen()); send('go depth 8 movetime 1500');
+        thinking=true; updateStatus(); continue;
+      }
+      commitMove(mv,true);
+      continue;
+    }
+  }
+}
+
+/* ══════════════ ניהול משחק ══════════════ */
+function newGame(){
+  stopEngine();
+  game=new Chess(); fens=[game.fen()]; sans=[]; evalByPly=[];
+  gameOver=null; sel=null; viewIdx=null; promoPending=null; thinking=false;
+  playerColor = sidePref==='r' ? (Math.random()<.5?'w':'b') : sidePref;
+  flipped = (playerColor==='b');
+  send('ucinewgame');
+  renderBoard(0); refreshMoveList(); refreshCaptured(); refreshEval(); updateStatus();
+  jumpChip.style.display='none';
+  if(game.turn()!==playerColor) setTimeout(engineGo,500);
+}
+
+$('btnNew').onclick=()=>{ hide($('ovOver')); newGame(); };
+$('btnAgain').onclick=()=>{ hide($('ovOver')); newGame(); };
+$('btnCloseOver').onclick=()=>hide($('ovOver'));
+
+$('btnUndo').onclick=()=>{
+  if(!ready||thinking||gameOver||!sans.length) return;
+  let n = (game.turn()===playerColor) ? 2 : 1;
+  if(sans.length<n) n=sans.length;
+  while(n-->0){ game.undo(); fens.pop(); sans.pop(); evalByPly.pop(); }
+  sel=null; viewIdx=null;
+  renderBoard(sans.length); refreshMoveList(); refreshCaptured(); refreshEval(); updateStatus();
+  jumpChip.style.display='none';
+  if(ready && !gameOver && game.turn()!==playerColor) setTimeout(engineGo,350);
+};
+
+$('btnResign').onclick=()=>{
+  if(gameOver||!ready) return;
+  stopEngine();
+  gameOver={winner:(playerColor==='w'?'b':'w'), reason:'נכנעת'};
+  updateStatus();
+  SFX.lose();
+  $('ovIcon').textContent='🏳️'; $('ovTitle').textContent='נכנעת';
+  $('ovSub').textContent='המנוע ניצח בכניעה';
+  show($('ovOver'));
+};
+
+$('btnFlip').onclick=()=>{ flipped=!flipped; renderBoard(viewIdx===null?sans.length:viewIdx); refreshEval(); };
+
+$('btnFen').onclick=()=>copyText(game.fen(),'FEN הועתק');
+$('btnPgn').onclick=()=>{
+  const pgn=game.pgn();
+  copyText(pgn||'', pgn?'PGN הועתק':'אין מהלכים להעתקה');
+};
+function copyText(txt,msg){
+  if(!txt){ toast(msg); return; }
+  (navigator.clipboard?.writeText(txt)||Promise.reject()).then(()=>toast(msg)).catch(()=>{
+    const ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); ta.remove(); toast(msg);
+  });
+}
+
+/* פקדים */
+$('lvl').value=level;
+function syncLvl(){
+  $('lvlNum').textContent='רמה '+level;
+  $('lvlName').textContent=LEVELS[level-1].name;
+  $('thinkRow').style.display = (level===LEVELS.length) ? 'block':'none';
+}
+$('lvl').addEventListener('input',e=>{ level=+e.target.value; syncLvl(); saveCfg(); updateStatus(); });
+
+$('think').value=Math.min(thinkSec,16);
+function syncThink(){ $('thinkName').textContent = thinkSec>=16 ? 'ללא הגבלה ⚠' : thinkSec+' שנ׳'; }
+$('think').addEventListener('input',e=>{ thinkSec=+e.target.value; syncThink(); saveCfg(); });
+syncThink(); syncLvl();
+
+document.querySelectorAll('input[name=side]').forEach(r=>{
+  r.checked = r.value===sidePref;
+  r.addEventListener('change',e=>{ if(e.target.checked){ sidePref=e.target.value; saveCfg(); } });
+});
+$('chkSound').checked=soundOn;
+$('chkSound').addEventListener('change',e=>{ soundOn=e.target.checked; saveCfg(); });
+$('chkEval').checked=evalOn;
+$('chkEval').addEventListener('change',e=>{ evalOn=e.target.checked; saveCfg(); refreshEval(); });
+
+/* ערכת לוח */
+function setTheme(t){
+  theme=t; boardEl.dataset.theme=t; saveCfg();
+  document.querySelectorAll('.th').forEach(b=>b.classList.toggle('on', b.dataset.th===t));
+}
+document.querySelectorAll('.th').forEach(b=> b.onclick=()=>setTheme(b.dataset.th));
+setTheme(theme);
+
+/* ══════════════ שכבות-על וטוסט ══════════════ */
+function show(o){ o.classList.add('show'); }
+function hide(o){ o.classList.remove('show'); }
+let toastT=null;
+function toast(msg){
+  const t=$('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),1800);
+}
+
+/* ══════════════ הורדות ══════════════ */
+function loaderMsg(m,pct){
+  $('loadMsg').textContent=m;
+  if(typeof pct==='number') $('loadBar').style.width=Math.round(Math.min(1,pct)*100)+'%';
+}
+function loaderFail(msg){
+  $('loadErr').style.display='block'; $('loadErr').textContent=msg;
+  $('btnRetry').style.display='inline-block';
+  $('loadMsg').textContent='הטעינה נכשלה';
+}
+$('btnRetry').onclick=()=>location.reload();
+
+async function fetchTimeout(url,opt={},ms=90000){
+  const ctl=new AbortController();
+  const tid=setTimeout(()=>ctl.abort(),ms);
+  try{ return await fetch(url,{...opt, signal:ctl.signal}); }
+  finally{ clearTimeout(tid); }
+}
+async function fetchText(url){
+  const res=await fetchTimeout(url,{cache:'force-cache'},45000);
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  return await res.text();
+}
+async function fetchBinProgress(url,onProg){
+  const res=await fetchTimeout(url,{cache:'force-cache'},240000);
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  if(!res.body || !res.headers.get('content-length')) return await res.arrayBuffer();
+  const total=+res.headers.get('content-length');
+  const reader=res.body.getReader(); const chunks=[]; let got=0;
+  for(;;){
+    const {done,value}=await reader.read();
+    if(done) break;
+    chunks.push(value); got+=value.length;
+    onProg(Math.min(1,got/total));
+  }
+  const out=new Uint8Array(got); let off=0;
+  for(const ch of chunks){ out.set(ch,off); off+=ch.length; }
+  return out.buffer;
+}
+
+/* ══════════════ טעינת המנוע (לוגיקה קיימת, לא נשנתה) ══════════════ */
+async function bootEngine(){
+  loaderMsg('מוריד את קובץ המנוע…',0);
+
+  let jsText=null, usedBase=null, lastErr=null;
+  for(const base of SF_DIR){
+    try{ jsText=await fetchText(base+SF_JS); usedBase=base; break; }
+    catch(e){ lastErr=e; console.warn('mirror failed:',base,e); }
+  }
+  if(!jsText){
+    loaderFail('הורדת קובץ המנוע נכשלה מכל השרתים ('+(lastErr&&lastErr.message||'?')+').');
+    return;
+  }
+  const jsBlobURL = URL.createObjectURL(new Blob([jsText],{type:'application/javascript'}));
+  console.info('[chess] engine JS from:',usedBase);
+
+  let wasmBuf=null;
+  const bases=[usedBase, ...SF_DIR.filter(b=>b!==usedBase)];
+  for(const base of bases){
+    try{
+      wasmBuf=await fetchBinProgress(base+SF_WASM,
+        p=>loaderMsg('מוריד את המנוע… ('+Math.round(p*100)+'%)',p));
+      console.info('[chess] wasm from:',base,'('+wasmBuf.byteLength+' bytes)');
+      break;
+    }catch(e){ console.warn('wasm mirror failed:',base,e); }
+  }
+
+  if(wasmBuf){
+    loaderMsg('מריץ את המנוע…',1);
+    try{
+      const wasmBlobURL=URL.createObjectURL(new Blob([wasmBuf],{type:'application/wasm'}));
+      spawnEngineWorker(jsBlobURL, wasmBlobURL, '');
+      await handshake({timeoutMs:120000, label:'מאתחל WebAssembly'});
+      return;
+    }catch(e){ console.warn('method B failed:',e); }
+  }
+
+  loaderMsg('מנסה הורדה ישירה בתוך המנוע…',0.05);
+  try{
+    spawnEngineWorker(jsBlobURL, usedBase+SF_WASM, 'native-progress');
+    await handshake({timeoutMs:180000, label:'המנוע מוריד את ה-wasm'});
+    return;
+  }catch(e){ console.warn('method A failed:',e); }
+
+  await tryAsmFallback();
+}
+
+async function tryAsmFallback(){
+  loaderMsg('מפעיל מצב תאימות (asm.js, איטי יותר)…',0);
+  for(const base of SF_DIR){
+    try{
+      spawnEngineWorker(base+SF_ASM, '', '');
+      await handshake({timeoutMs:240000, label:'מאתחל asm.js'});
+      return;
+    }catch(e){ console.warn('asm fallback failed:',base,e); }
+  }
+  loaderFail('לא ניתן לטעון את המנוע מאף מקור. בדוק חיבור לאינטרנט ונסה שוב.');
+}
+
+/* ══════════════ גודל לוח ══════════════ */
+new ResizeObserver(()=>{
+  const s=boardEl.clientWidth/8;
+  boardEl.parentElement.style.setProperty('--sq',s+'px');
+  ghost.style.setProperty('--gsq',s+'px');
+}).observe(boardEl);
+
+/* ══════════════ אתחול ══════════════ */
+renderBoard(0); refreshCaptured(); refreshEval(); updateStatus();
+bootEngine();
+</script>
+</body>
+</html>
